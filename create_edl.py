@@ -15,6 +15,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-v', '--video_path', type=str, default=None,
                     help='Path to the video')
 
+parser.add_argument('-p', '--process_mode', type=int, default=1,
+                    help='0: Only remove silent parts, 1: Only remove flagged parts, 2: Remove silent and flagged parts')
+
 parser.add_argument('--silence_threshold', type=int, default=-40,
                     help='Thereshold below which the audio is considered to be silent')
 
@@ -30,11 +33,7 @@ parser.add_argument('--buffer', type=float, default=0.0,
 parser.add_argument('--flag_threshold', type=int, default=-2,
                     help='Signals above this threshold indicate the discard flag')
 
-parser.add_argument('--remove_silents', action='store_true')
-
 args = parser.parse_args()
-
-
 
 
 def main():
@@ -80,15 +79,24 @@ def main():
             intervals_flag.append(ind)
 
     intervals_to_remove = intervals[intervals_flag]
-    intervals_to_keep = []
+    
+    if args.process_mode == 0:
+        # Only remove silent parts:
+        intervals_to_keep = intervals
+    elif args.process_mode == 1:
+        # Only remove flagged parts:
+        intervals_to_keep = []
+        intervals_to_keep.append([0, intervals_to_remove[0][0]])
+        for i in range(intervals_to_remove.shape[0]-1):
+            intervals_to_keep.append([intervals_to_remove[i][1], intervals_to_remove[i+1][0]])
+        intervals_to_keep.append([intervals_to_remove[-1][1], audio_signal.shape[0]])
+    else:
+        # Remove silent and flagged parts:
+        intervals_to_keep = intervals[[i for i in range(intervals.shape[0]) if i not in intervals_flag]]
 
-    intervals_to_keep.append([0, intervals_to_remove[0][0]])
-    for i in range(intervals_to_remove.shape[0]-1):
-        intervals_to_keep.append([intervals_to_remove[i][1], intervals_to_remove[i+1][0]])
-    intervals_to_keep.append([intervals_to_remove[-1][1], audio_signal.shape[0]])
     intervals_to_keep = np.array(intervals_to_keep) / sampling_rate
 
-    _create_edl(VIDEO_PATH, fps, intervals_to_keep)
+    _create_edl(VIDEO_PATH, fps, intervals_to_keep, args.process_mode)
     
 
 
@@ -106,7 +114,7 @@ def _time_stamp(frames, fps=30):
     frames = int(frames)
     return f"{hour:02d}:{minutes:02d}:{seconds:02d}:{frames:02d}"
 
-def _create_edl(VIDEO_PATH, fps, intervals_to_keep):
+def _create_edl(VIDEO_PATH, fps, intervals_to_keep, process_mode):
     """# Create an EDL based on the flagged intervals
     # EDL format (https://www.niwa.nu/2013/05/how-to-read-an-edl/):
 
@@ -118,7 +126,7 @@ def _create_edl(VIDEO_PATH, fps, intervals_to_keep):
     TIMELINE_BEGIN_2 = TIMELINE_END_1
     """
 
-    with open(f"{VIDEO_PATH}.{fps:0.2f}.edl", "w+") as f:
+    with open(f"{VIDEO_PATH}.{fps:0.2f}_p{process_mode}.edl", "w+") as f:
         f.write(f"TITLE: {VIDEO_PATH.name}\n")
         f.write("FCM: NON-DROP FRAME\n\n")
         time_line_b = 0
